@@ -142,49 +142,77 @@ void setup(void)
 	setupDisplay();
 }
 
+int buttonState;
+int lastButtonState = LOW;
+unsigned long lastDebounceTime = 0;
+unsigned long debounceDelay = 50;
+
 // on button press, we set the current distance as the new threshold and save it to fs
 void handleButtonPress()
 {
-	if (digitalRead(BUTTON_PIN))
+	int reading = digitalRead(BUTTON_PIN);
+	if (reading != lastButtonState)
 	{
-		if (displayOn)
+		lastDebounceTime = millis();
+	}
+	if ((millis() - lastDebounceTime) > debounceDelay)
+	{
+		if (reading != buttonState)
 		{
-			analogWrite(TFT_BL, 0);
-			displayOn = false;
-		}
-		else
-		{
-			analogWrite(TFT_BL, config.tft_brightness_limit * 2.55);
-			displayOn = true;
+			buttonState = reading;
+
+			if (buttonState == HIGH)
+			{
+				if (displayOn)
+				{
+					analogWrite(TFT_BL, 0);
+					displayOn = false;
+				}
+				else
+				{
+					analogWrite(TFT_BL, config.tft_brightness_limit * 2.55);
+					displayOn = true;
+				}
+			}
 		}
 	}
+
+	lastButtonState = reading;
 }
+
+unsigned long previousMillis = 0;
+unsigned long interval = 1000;
 
 void loop()
 {
-	// clear trigger pin on sonar
-	digitalWrite(TRIG_PIN, LOW);
-	delayMicroseconds(2);
-
-	// send a 10 microsecond pulse to trigger pin
-	digitalWrite(TRIG_PIN, HIGH);
-	delayMicroseconds(10);
-	digitalWrite(TRIG_PIN, LOW);
-
-	duration = pulseIn(ECHO_PIN, HIGH);
-	distance = (duration * .0343) / 2;
-
-	// if the distance has changed, then wake up the display
-
-	// if the distance hasn't changed since display_sleep_time, then turn off the display
-
-	Serial.print("Distance: ");
-	Serial.println(distance);
-
 	handleButtonPress();
 
-	Serial.printf("config: bl=%d, dt=%d, dst=%d\n", config.tft_brightness_limit, config.distance_threshold, config.display_sleep_time);
+	unsigned long currentMillis = millis();
+	if (currentMillis - previousMillis > interval)
+	{
+		previousMillis = currentMillis;
 
-	printRightAligned("Distance:", distance, 100, 100);
-	delay(300);
+		// clear trigger pin on sonar
+		digitalWrite(TRIG_PIN, LOW);
+		delayMicroseconds(2);
+
+		// send a 10 microsecond pulse to trigger pin
+		digitalWrite(TRIG_PIN, HIGH);
+		delayMicroseconds(10);
+		digitalWrite(TRIG_PIN, LOW);
+
+		duration = pulseIn(ECHO_PIN, HIGH);
+		distance = (duration * .0343) / 2;
+
+		// if the distance has changed, then wake up the display
+
+		// if the distance hasn't changed since display_sleep_time, then turn off the display
+
+		Serial.print("Distance: ");
+		Serial.println(distance);
+
+		Serial.printf("config: bl=%d, dt=%d, dst=%d\n", config.tft_brightness_limit, config.distance_threshold, config.display_sleep_time);
+
+		printRightAligned("Distance:", distance, 100, 100);
+	}
 }
