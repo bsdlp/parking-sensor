@@ -1,12 +1,17 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#include <LittleFS.h>
+#include <limits>
 #include "ultrasonic_sensor.h"
 
+// LittleFSConfig fsCfg;
 TFT_eSPI tft = TFT_eSPI();
+Config config;
 
 long duration;
 int distance;
+bool displayOn;
 
 // uses PWM to set brightness between 0 and 100%
 void set_tft_brightness(uint8_t Value)
@@ -43,18 +48,116 @@ void printRightAligned(const char *label, int number, int x, int y)
 	tft.print(buffer);													// Print the number
 }
 
-void setup(void)
+void setupFs(void)
 {
-	pinMode(TRIG_PIN, OUTPUT);
-	pinMode(ECHO_PIN, INPUT);
-	Serial.begin(9600);
+	/*
+	fsCfg.setAutoFormat(true);
+	LittleFS.setConfig(fsCfg);
+	*/
+	if (!LittleFS.begin())
+	{
+		Serial.println("An Error has occurred while mounting LittleFS");
+		return;
+	}
 
+	/*
+	 if (!SPIFFS.begin())
+	 {
+		 Serial.println("formatting file system");
+
+		 SPIFFS.format();
+		 if (!SPIFFS.begin())
+		 {
+			 Serial.println("error formatting file system");
+		 }
+	 }
+	*/
+}
+
+void readConfigOrSetDefaults()
+{
+	Serial.println("Reading config file");
+	File cfgFile;
+	cfgFile = LittleFS.open(CONFIG_FILE, "r");
+	if (!cfgFile)
+	{
+		cfgFile = LittleFS.open(CONFIG_FILE, "w");
+		cfgFile.println("bl=100");
+		cfgFile.println("dt=20");
+		cfgFile.println("dst=9999");
+		cfgFile.flush();
+		cfgFile.close();
+		cfgFile = LittleFS.open(CONFIG_FILE, "r");
+	}
+
+	String key;
+	String value;
+	while (cfgFile.available())
+	{
+		Serial.println("reading config file line");
+		key = cfgFile.readStringUntil('=');
+		value = cfgFile.readStringUntil('\n');
+		if (key == "bl")
+		{
+			config.tft_brightness_limit = value.toInt();
+		}
+		else if (key == "dt")
+		{
+			config.distance_threshold = value.toInt();
+		}
+		else if (key == "dst")
+		{
+			config.display_sleep_time = value.toInt();
+		}
+		Serial.printf("config key: %s, value: %s\n", key.c_str(), value.c_str());
+	}
+	cfgFile.close();
+}
+
+void setupDisplay(void)
+{
 	tft.init();
 	tft.setRotation(2);
 	tft.fillScreen(TFT_BLACK);
 	tft.setTextColor(TFT_WHITE, TFT_BLACK);
 	tft.setTextSize(2);
-	set_tft_brightness(80);
+	set_tft_brightness(config.tft_brightness_limit);
+	displayOn = true;
+}
+
+void setup(void)
+{
+	Serial.begin(9600);
+	delay(10000);
+
+	setupFs();
+	readConfigOrSetDefaults();
+
+	pinMode(BUTTON_LED, OUTPUT);
+	pinMode(BUTTON_PIN, INPUT_PULLDOWN);
+	pinMode(TRIG_PIN, OUTPUT);
+	pinMode(ECHO_PIN, INPUT);
+	analogWrite(BUTTON_LED, 255);
+
+	setupDisplay();
+}
+
+// on button press, we set the current distance as the new threshold and save it to fs
+void handleButtonPress()
+{
+	if (digitalRead(BUTTON_PIN))
+	{
+		if (displayOn)
+		{
+			analogWrite(TFT_BL, 0);
+			displayOn = false;
+		}
+		else
+		{
+			analogWrite(TFT_BL, config.tft_brightness_limit * 2.55);
+			displayOn = true;
+		}
+	}
 }
 
 void loop()
@@ -70,8 +173,17 @@ void loop()
 
 	duration = pulseIn(ECHO_PIN, HIGH);
 	distance = (duration * .0343) / 2;
+
+	// if the distance has changed, then wake up the display
+
+	// if the distance hasn't changed since display_sleep_time, then turn off the display
+
 	Serial.print("Distance: ");
 	Serial.println(distance);
+
+	handleButtonPress();
+
+	Serial.printf("config: bl=%d, dt=%d, dst=%d\n", config.tft_brightness_limit, config.distance_threshold, config.display_sleep_time);
 
 	printRightAligned("Distance:", distance, 100, 100);
 	delay(300);
