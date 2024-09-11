@@ -165,12 +165,12 @@ void handleButtonPress()
 			{
 				if (displayOn)
 				{
-					analogWrite(TFT_BL, 0);
+					set_tft_brightness(0);
 					displayOn = false;
 				}
 				else
 				{
-					analogWrite(TFT_BL, config.tft_brightness_limit * 2.55);
+					set_tft_brightness(config.tft_brightness_limit);
 					displayOn = true;
 				}
 			}
